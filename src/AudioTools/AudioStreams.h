@@ -1101,6 +1101,16 @@ class MeasuringStream : public AudioStream {
 };
 
 /**
+ * @brief Configuration for ProgressStream
+ * @author Phil Schatzmann
+ * @copyright GPLv3
+ * 
+ */
+class ProgressStreamInfo : public AudioInfo {
+  public:
+    size_t total_size = 0;
+};
+/**
  * @brief Generic calss to measure the the total bytes which were processed in order to 
  * calculate the progress as a percentage of the total size.
  * @author Phil Schatzmann
@@ -1119,6 +1129,20 @@ class ProgressStream : public AudioStream {
       setStream(stream);
     }
 
+    ProgressStream(AudioStream &stream){
+      setStream(stream);
+      p_info_from = &stream;
+    }
+
+    ProgressStreamInfo& defaultConfig() {
+      return progress_info;
+    }
+
+    void setAudioInfo(AudioInfo info) override {
+      AudioStream::setAudioInfo(info);
+      progress_info.copyFrom(info);
+    }
+
     void setStream(Stream &stream){
       p_stream =&stream;
       p_print = &stream;
@@ -1132,32 +1156,61 @@ class ProgressStream : public AudioStream {
       p_print =&print;
     }
 
+    bool begin() override {
+      if (p_info_from!=nullptr){
+        setAudioInfo(p_info_from->audioInfo());
+      }
+      return AudioStream::begin();
+    }
+
     /// Updates the total size and restarts the percent calculation: Same as calling setSize()
     bool begin(size_t len){
       setSize(len);
-      return AudioStream::begin();
+      return begin();
+    }
+
+    bool begin(ProgressStreamInfo info){
+      progress_info = info;
+      setAudioInfo(info);
+      return begin();
     }
 
     /// Updates the total size and restarts the percent calculation
     void setSize(size_t len){
       total_processed = 0;
-      total_size = len;
+      progress_info.total_size = len;
     }
 
     /// Provides the current total size (defined by setSize)
     size_t size(){
-      return total_size;
+      return progress_info.total_size;
     }
 
     /// Provides the number of processed bytes
-    size_t processed() {
+    size_t processedBytes() {
       return total_processed;
+    }
+
+    /// Provides the number of processed seconds
+    size_t processedSecs() {
+      AudioInfo info = audioInfo();
+      return total_processed / byteRate();
+    }
+
+    /// Provides the total_size provided in the configuration
+    size_t totalBytes() {
+      return progress_info.total_size;
+    }
+
+    /// Converts the totalBytes() to seconds
+    size_t totalSecs() {
+      return totalBytes() / byteRate();
     }
 
     /// Provides the processed percentage: If no size has been defined we return 0 
     float percentage() {
-      if (total_size==0) return 0;
-      return 100.0 * total_processed / total_size;
+      if (progress_info.total_size==0) return 0;
+      return 100.0 * total_processed / progress_info.total_size;
     }
 
         /// Provides the data from all streams mixed together 
@@ -1184,16 +1237,25 @@ class ProgressStream : public AudioStream {
     }
 
   protected:
+    ProgressStreamInfo progress_info;
     Stream *p_stream=nullptr;
     Print *p_print=nullptr;
+    AudioInfoDependent *p_info_from=nullptr;
     size_t total_processed = 0;
-    size_t total_size = 0;
 
     size_t measure(size_t len) {
       total_processed += len;
       return len;
     }
 
+    size_t byteRate() {
+      int byte_rate = info.sample_rate * info.bits_per_sample * info.channels / 8;
+      if (byte_rate==0){
+        LOGE("Audio Info not defined");
+        return 0;
+      }
+      return byte_rate;
+    }
 
 };
 
